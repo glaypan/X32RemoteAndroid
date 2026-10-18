@@ -1,0 +1,21 @@
+# ---- Gradle / 构建产物 ----
+.gradle/
+build/
+app/build/
+.kotlin/
+local.properties
+
+# ---- 签名密钥与密码（公开仓绝不入库）----
+# x32release.jks：自用发布密钥库（CN=X32 Remote，同密钥可覆盖安装升级）
+# keystore.properties：上面的密钥库密码，app/build.gradle 从这里读
+x32release.jks
+keystore.properties
+*.jks
+*.keystore
+
+# ---- IDE / 本机 ----
+.idea/
+*.iml
+.cxx/
+captures/
+.DS_Store

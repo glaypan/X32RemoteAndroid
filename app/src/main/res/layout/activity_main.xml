@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0F14"
+    android:orientation="vertical">
+
+    <!-- ============ 顶部状态栏 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12141A"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="7dp">
+
+        <View
+            android:id="@+id/dotStatus"
+            android:layout_width="9dp"
+            android:layout_height="9dp"
+            android:background="@drawable/dot_status" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="7dp"
+            android:text="未连接"
+            android:textColor="#E8EDF5"
+            android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/tvTarget"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="#8A94A6"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/tvShowState"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="4dp"
+            android:textColor="#4AA8FF"
+            android:textSize="12sp" />
+
+        <TextView
+            android:id="@+id/btnStopShow"
+            style="@style/Chip"
+            android:text="■ 停止" />
+
+        <TextView
+            android:id="@+id/btnScan"
+            style="@style/Chip"
+            android:text="🔍 扫描" />
+
+        <TextView
+            android:id="@+id/btnConnect"
+            style="@style/Chip"
+            android:text="🔗 连接" />
+
+        <TextView
+            android:id="@+id/btnMenu"
+            style="@style/Chip"
+            android:text="☰" />
+
+    </LinearLayout>
+
+    <!-- ============ 标签栏 ============ -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12141A"
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/tabBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="7dp" />
+    </HorizontalScrollView>
+
+    <!-- ============ 内容区 ============ -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvList"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingBottom="8dp" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvCards"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="6dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</LinearLayout>
