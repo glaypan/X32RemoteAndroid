@@ -22,6 +22,7 @@ import com.x32remote.core.X32Client
 import com.x32remote.databinding.ActivityMainBinding
 import com.x32remote.ui.CardAdapter
 import com.x32remote.ui.ChannelAdapter
+import com.x32remote.ui.showRiderDialog
 import org.json.JSONArray
 import java.util.Locale
 
@@ -284,6 +285,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             "导出卡片配置到剪贴板",
             "从剪贴板导入卡片",
             "重新拉取台面状态",
+            "自动增益 / 自动推子（需电脑端服务）",
             "断开连接",
             "关于"
         )
@@ -297,12 +299,13 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
                         client.requestFullState()
                         toast("已请求全量状态")
                     }
-                    3 -> {
+                    3 -> showRider()
+                    4 -> {
                         client.disconnect()
                         updateTopBar()
                         toast("已断开")
                     }
-                    4 -> AlertDialog.Builder(this)
+                    5 -> AlertDialog.Builder(this)
                         .setTitle("X32 Remote")
                         .setMessage(
                             "原生 Android 遥控端\n" +
@@ -316,6 +319,18 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             }
             .setNegativeButton("关闭", null)
             .show()
+    }
+
+    private fun showRider() {
+        // 自动增益跑在电脑端服务里：用调音台同一个 IP + 网页端口（默认 8080）
+        val host = client.targetIp.ifEmpty { prefs.getString("last_ip", "") ?: "" }
+        if (host.isEmpty()) {
+            toast("先连接一次或在菜单里填过 IP")
+            return
+        }
+        showRiderDialog(
+            this, host, prefs.getInt("rider_port", 8080)
+        ) { p -> prefs.edit().putInt("rider_port", p).apply() }
     }
 
     private fun exportCards() {
