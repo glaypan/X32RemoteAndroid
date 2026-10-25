@@ -1,8 +1,10 @@
 package com.x32remote
 
+import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.os.Bundle
 import android.text.InputType
@@ -11,14 +13,19 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.x32remote.core.ConsoleInfo
 import com.x32remote.core.Discovery
 import com.x32remote.core.ShowProgress
 import com.x32remote.core.X32
+import com.x32remote.core.PairCode
 import com.x32remote.core.X32Client
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import com.x32remote.databinding.ActivityMainBinding
 import com.x32remote.ui.CardAdapter
 import com.x32remote.ui.ChannelAdapter
@@ -40,6 +47,19 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
     private lateinit var cardAdapter: CardAdapter
 
     private val prefs by lazy { getSharedPreferences("x32", Context.MODE_PRIVATE) }
+
+    // ---------- 扫码连接（电脑端二维码） ----------
+    // 相机权限自己先要：ZXing 的 CaptureActivity 在不同版本上对权限的处理不一致，
+    // 交给它会出现"黑屏但不报错"。这里拿到权限再进扫码页，拒绝就明确提示。
+    private val scanLauncher = registerForActivityResult(ScanContract()) { result ->
+        val text = result.contents
+        if (!text.isNullOrBlank()) handlePairText(text)
+    }
+    private val cameraPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) launchScanner()
+            else toast("没有相机权限：系统设置 → 应用 → X32 Remote → 权限 里打开，或手填 IP")
+        }
 
     private val tabs = listOf(
         "ch" to "通道",
@@ -282,6 +302,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
 
     private fun showMenu() {
         val items = arrayOf(
+            "扫码连接（电脑端二维码）",
             "导出卡片配置到剪贴板",
             "从剪贴板导入卡片",
             "重新拉取台面状态",
@@ -293,19 +314,20 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             .setTitle("菜单")
             .setItems(items) { _, which ->
                 when (which) {
-                    0 -> exportCards()
-                    1 -> importCards()
-                    2 -> {
+                    0 -> startScan()
+                    1 -> exportCards()
+                    2 -> importCards()
+                    3 -> {
                         client.requestFullState()
                         toast("已请求全量状态")
                     }
-                    3 -> showRider()
-                    4 -> {
+                    4 -> showRider()
+                    5 -> {
                         client.disconnect()
                         updateTopBar()
                         toast("已断开")
                     }
-                    5 -> AlertDialog.Builder(this)
+                    6 -> AlertDialog.Builder(this)
                         .setTitle("X32 Remote")
                         .setMessage(
                             "原生 Android 遥控端\n" +
@@ -319,6 +341,40 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             }
             .setNegativeButton("关闭", null)
             .show()
+    }
+
+    // ============================================================ 扫码连接
+
+    private fun startScan() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            launchScanner()
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    private fun launchScanner() {
+        val options = ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)   // 只认二维码，别抓错条形码
+            .setPrompt("对准电脑端「手机连接」里的二维码")
+            .setBeepEnabled(false)
+            .setOrientationLocked(false)
+        scanLauncher.launch(options)
+    }
+
+    /** 扫到即连；识别失败不动当前地址（半截地址比不连更让人困惑） */
+    private fun handlePairText(raw: String) {
+        val code = PairCode.parse(raw)
+        if (code == null) {
+            toast("这不是 X32 的连接码，请对准电脑端「手机连接」里的二维码")
+            return
+        }
+        // 自动增益/推子走电脑端 HTTP 接口：配对码里带了网页端口，顺手记下来
+        prefs.edit().putInt("rider_port", code.web ?: 8080).apply()
+        connect(code.host, code.osc)
+        toast("扫码连接 ${code.summary}")
     }
 
     private fun showRider() {

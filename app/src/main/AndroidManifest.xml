@@ -9,6 +9,10 @@
     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
     <!-- 保持屏幕常亮：演出时作为遥控器使用 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- 扫码连接：读取电脑端二维码里的 IP 与端口（不拍照、不存图） -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 没有相机的设备也允许安装：扫码只是便捷入口，手填 IP 全功能可用 -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:allowBackup="true"
