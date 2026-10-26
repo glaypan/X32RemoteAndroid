@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.os.Bundle
@@ -87,13 +88,36 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         client.listener = this
         client.showProgressSink = { p -> runOnUiThread { onShowProgress(p) } }
 
-        // 自动重连上次使用的地址
-        val lastIp = prefs.getString("last_ip", "") ?: ""
-        if (lastIp.isNotEmpty()) {
-            connect(lastIp, prefs.getInt("last_port", X32.DEFAULT_PORT))
-        } else {
-            updateTopBar()
+        // 深度链接冷启动优先于自动重连：用户刚扫了一张新码，
+        // 没道理先连一次上次那台再切过去（旧地址不存在时还会卡一个超时）
+        if (!handleIntent(intent)) {
+            val lastIp = prefs.getString("last_ip", "") ?: ""
+            if (lastIp.isNotEmpty()) {
+                connect(lastIp, prefs.getInt("last_port", X32.DEFAULT_PORT))
+            } else {
+                updateTopBar()
+            }
         }
+    }
+
+    /**
+     * App 已在运行时又被扫了一次码：singleTask 会走到这里而不是新建实例。
+     * 必须 setIntent —— 不然 getIntent() 永远是启动时那条，后续判断会错。
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** 只认 x32remote://pair?... 一种载荷；别的 VIEW 意图（http 等）一律当普通启动。
+     *  返回 true 表示这是配对码深链、已处理（调用方据此跳过自动重连）。 */
+    private fun handleIntent(intent: Intent?): Boolean {
+        if (intent?.action != Intent.ACTION_VIEW) return false
+        val raw = intent.data?.toString() ?: return false
+        if (raw.isBlank()) return false
+        handlePairText(raw, fromDeepLink = true)
+        return true
     }
 
     override fun onDestroy() {
@@ -365,16 +389,21 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
     }
 
     /** 扫到即连；识别失败不动当前地址（半截地址比不连更让人困惑） */
-    private fun handlePairText(raw: String) {
+    private fun handlePairText(raw: String, fromDeepLink: Boolean = false) {
         val code = PairCode.parse(raw)
         if (code == null) {
-            toast("这不是 X32 的连接码，请对准电脑端「手机连接」里的二维码")
+            // deep link 进来的只可能是 x32remote://pair（清单里没注册别的 scheme），
+            // 解析失败说明是老版本 App 生成的码或码被截断，提示要指向"重新生成"而不是"扫错码"
+            toast(
+                if (fromDeepLink) "连接码无法识别（可能是旧版生成的），请在电脑端重新打开「手机连接」"
+                else "这不是 X32 的连接码，请对准电脑端「手机连接」里的二维码"
+            )
             return
         }
         // 自动增益/推子走电脑端 HTTP 接口：配对码里带了网页端口，顺手记下来
         prefs.edit().putInt("rider_port", code.web ?: 8080).apply()
         connect(code.host, code.osc)
-        toast("扫码连接 ${code.summary}")
+        toast(if (fromDeepLink) "二维码连接 ${code.summary}" else "扫码连接 ${code.summary}")
     }
 
     private fun showRider() {

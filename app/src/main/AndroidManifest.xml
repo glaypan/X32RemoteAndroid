@@ -27,10 +27,19 @@
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
             android:screenOrientation="sensorLandscape"
-            android:theme="@style/Theme.X32Remote">
+            android:theme="@style/Theme.X32Remote"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+            <!-- 深度链接：系统相机/微信扫到 x32remote://pair?... 直接拉起 App。
+                 singleTask 保证 App 已在运行时走 onNewIntent（不新开实例、不重跑自动重连）。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="x32remote" android:host="pair" />
             </intent-filter>
         </activity>
 
