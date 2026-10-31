@@ -110,6 +110,16 @@
             android:paddingBottom="8dp"
             android:visibility="gone" />
 
+        <!-- 效果器机架：8 个 FX 槽（与主列表互斥显示） -->
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvFx"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingTop="6dp"
+            android:paddingBottom="8dp"
+            android:visibility="gone" />
+
     </FrameLayout>
 
 </LinearLayout>

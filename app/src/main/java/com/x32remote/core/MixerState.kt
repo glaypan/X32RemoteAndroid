@@ -4,6 +4,25 @@ package com.x32remote.core
 data class ChannelState(val fader: Float = 0.75f, val on: Int = 1)
 
 /**
+ * 一个效果器槽的完整状态 (v1.6 效果库全量标定后新增)。
+ *
+ * 三条 OSC 流汇到这一份:
+ *  - /fxrtn/NN/mix/fader|on   FX 返回的推子与静音 (真台拼写 fxrtn, 两位补零)
+ *  - /fx/N/type|on|mix        算法/效果开关/混合比 (槽号不补零)
+ *  - /fx/N/par/NN             算法参数 (参数号两位补零, 键按原样 "01".."NN")
+ */
+data class FxSlotState(
+    val index: Int,
+    val fader: Float = 0.75f,
+    val on: Int = 1,             // FX 返回静音 (1 = 未静音)
+    val algoType: String = "",   // 真台枚举名 (HALL/GEQ/P1A…); 空 = 空槽
+    val fxOn: Int = 1,           // 效果开关 (1 = 启用)
+    val mix: Double = 0.25,
+    val name: String = "",
+    val params: Map<String, Double> = emptyMap()   // 键 = OSC 原始段 "01".."NN"
+)
+
+/**
  * 台面状态模型（线程安全）。
  *
  * 分组：ch(1-32) bus(1-16) dca(1-8) auxin(1-6) usb(1-2) fxret(1-8) mtx(1-6)，main 固定 idx=0。
@@ -17,6 +36,9 @@ class MixerState {
     private var mainState = ChannelState()
     private var sceneNo = 1
 
+    /** FX 机架 1-8: 算法/开关/混合比/参数 + FX 返回推子静音 */
+    private val fxSlots = HashMap<Int, FxSlotState>(16)
+
     /** "group:idx" -> 名称（最长 12 字符） */
     private val names = HashMap<String, String>()
 
@@ -28,6 +50,7 @@ class MixerState {
             for (i in 1..n) m[i] = ChannelState()
             groups[g] = m
         }
+        for (i in 1..8) fxSlots[i] = FxSlotState(i)
         for (d in 1..8) dcaMembers[d] = ArrayList()
         // 默认成员分配：每 8 路一组（DCA1→ch1-8, DCA2→ch9-16, ...）
         for (i in 1..32) dcaMembers[(i - 1) / 8 + 1]!!.add(i)
@@ -136,5 +159,58 @@ class MixerState {
 
     fun setScene(s: Int) {
         synchronized(lock) { sceneNo = s }
+    }
+
+    // ------------------------------------------------------------ FX 机架 (v1.6)
+
+    /** 8 个槽的快照 (越界槽返回空态, 不抛) */
+    fun fxSlots(): List<FxSlotState> = synchronized(lock) {
+        (1..8).map { fxSlots[it] ?: FxSlotState(it) }
+    }
+
+    fun fxSlot(i: Int): FxSlotState = synchronized(lock) {
+        if (i in 1..8) fxSlots[i] ?: FxSlotState(i) else FxSlotState(i)
+    }
+
+    /** 通用更新入口: 变化返回 true (用于抑制无意义刷新) */
+    fun updateFxSlot(i: Int, block: (FxSlotState) -> FxSlotState): Boolean = synchronized(lock) {
+        val cur = fxSlots[i] ?: return false
+        val next = block(cur)
+        if (next == cur) return false
+        fxSlots[i] = next
+        true
+    }
+
+    /** FX 返回推子 (/fxrtn/NN/mix/fader) */
+    fun setFxFader(i: Int, v: Float): Boolean = updateFxSlot(i) {
+        it.copy(fader = v.coerceIn(0f, 1f))
+    }
+
+    /** FX 返回静音 (/fxrtn/NN/mix/on; 1 = 未静音) */
+    fun setFxReturnOn(i: Int, on: Int): Boolean = updateFxSlot(i) {
+        it.copy(on = if (on != 0) 1 else 0)
+    }
+
+    /** 切换算法 (空串 = 空槽; 参数全废, 由调用方重新查询) */
+    fun setFxAlgo(i: Int, algo: String): Boolean = updateFxSlot(i) {
+        it.copy(algoType = algo, params = emptyMap())
+    }
+
+    /** 效果开关 (/fx/N/on; 1 = 启用) */
+    fun setFxEnabled(i: Int, on: Int): Boolean = updateFxSlot(i) {
+        it.copy(fxOn = if (on != 0) 1 else 0)
+    }
+
+    fun setFxMix(i: Int, mix: Double): Boolean = updateFxSlot(i) {
+        it.copy(mix = mix.coerceIn(0.0, 1.0))
+    }
+
+    fun setFxName(i: Int, name: String): Boolean = updateFxSlot(i) {
+        it.copy(name = name)
+    }
+
+    /** 写一个算法参数 (键 = OSC 原始段 "01".."NN") */
+    fun setFxParam(i: Int, parKey: String, v: Double): Boolean = updateFxSlot(i) {
+        it.copy(params = it.params + (parKey to v))
     }
 }

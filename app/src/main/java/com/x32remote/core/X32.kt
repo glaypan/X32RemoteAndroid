@@ -86,7 +86,7 @@ object X32 {
         "dca" -> f("/dca/%02d/config/name", idx)
         "auxin" -> f("/auxin/%02d/config/name", idx)
         "usb" -> f("/usb/%02d/config/name", idx)
-        "fxret" -> f("/fxret/%02d/config/name", idx)
+        "fxret" -> fxrtnName(idx)
         "mtx" -> f("/mtx/%02d/config/name", idx)
         "main" -> MAIN_NAME
         else -> throw IllegalArgumentException("未知分组: $group")
@@ -98,7 +98,10 @@ object X32 {
         "dca_fader" -> dcaFader(idx)
         "auxin_fader" -> f("/auxin/%02d/mix/fader", idx)
         "usb_fader" -> f("/usb/%02d/mix/fader", idx)
-        "fxret_fader" -> f("/fxret/%02d/mix/fader", idx)
+        // ⚠️ FX 返回组真台拼写是 **fxrtn** (Maillot 协议原文:
+        //    /fxrtn/[01..08]/mix/fader)。kind 名保持 fxret_fader 不变
+        //    (卡片配置存的是 kind, 改名炸存档); fxret 是旧拼写, 只收不发。
+        "fxret_fader" -> fxrtnFader(idx)
         "mtx_fader" -> f("/mtx/%02d/mix/fader", idx)
         "main_fader" -> MAIN_FADER // 无占位符
         else -> throw IllegalArgumentException("未知推子 kind: $kind")
@@ -110,11 +113,39 @@ object X32 {
         "dca_on" -> dcaOn(idx)
         "auxin_on" -> f("/auxin/%02d/mix/on", idx)
         "usb_on" -> f("/usb/%02d/mix/on", idx)
-        "fxret_on" -> f("/fxret/%02d/mix/on", idx)
+        "fxret_on" -> fxrtnOn(idx)
         "mtx_on" -> f("/mtx/%02d/mix/on", idx)
         "main_on" -> MAIN_ON // 无占位符
         else -> throw IllegalArgumentException("未知静音 kind: $kind")
     }
+
+    // ------------------------------------------------------------ FX 机架 (v1.6)
+
+    /**
+     * FX 返回组的地址拼写归一到内部组名 `fxret`：
+     *  - `fxrtn` 真台拼写（Maillot 协议原文 /fxrtn/[01..08]/mix/fader）
+     *  - `fxret` 旧拼写（旧模拟器 / 早期本端），只收不发
+     *  - 别的（含早年臆造的 `rtn/fx`）→ null
+     *
+     * 抽成 X32 的纯函数而不是留在 X32Client 里：X32Client 依赖 Android Looper，
+     * JVM 单测实例化不了，这条真回归就测不到。
+     */
+    fun fxReturnGroupOf(head: String): String? =
+        if (head == "fxrtn" || head == "fxret") "fxret" else null
+
+    /** FX 返回推子/静音: 真台拼写 fxrtn, 槽号两位补零 (01..08) */
+    fun fxrtnFader(i: Int) = f("/fxrtn/%02d/mix/fader", i)
+    fun fxrtnOn(i: Int) = f("/fxrtn/%02d/mix/on", i)
+    fun fxrtnName(i: Int) = f("/fxrtn/%02d/config/name", i)
+
+    /** 效果槽: 槽号**不补零** (与 ch/bus 的 %02d 相反, 真台如此) */
+    fun fxType(i: Int) = "/fx/$i/type"
+    fun fxOn(i: Int) = "/fx/$i/on"
+    fun fxMix(i: Int) = "/fx/$i/mix"
+    fun fxName(i: Int) = "/fx/$i/config/name"
+
+    /** 效果参数: 参数号两位补零 */
+    fun fxParam(i: Int, p: Int) = f("/fx/%d/par/%02d", i, p)
 
     /** 统一入口：内部已处理 Main 无占位符的特例 */
     fun addressOf(kind: String, idx: Int): String =

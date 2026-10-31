@@ -1,0 +1,143 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 效果槽详情页。
+     参数行数量随算法变（4~64），无法写死在 XML —— 由代码按标定表动态塞进 @paramBox。 -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#0D0F14"
+    android:orientation="vertical">
+
+    <!-- ============ 顶栏 ============ -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#12141A"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="8dp">
+
+        <TextView
+            android:id="@+id/btnBack"
+            style="@style/Chip"
+            android:text="‹ 返回" />
+
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="FX 1"
+            android:textColor="#E8EDF5"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnReload"
+            style="@style/Chip"
+            android:text="↻ 重读" />
+
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:id="@+id/container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="12dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="24dp">
+
+            <!-- 算法 -->
+            <TextView
+                android:id="@+id/tvSecAlgo"
+                style="@style/SectionTitle"
+                android:text="算法" />
+
+            <Spinner
+                android:id="@+id/spAlgo"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@drawable/bg_card"
+                android:paddingVertical="6dp" />
+
+            <TextView
+                android:id="@+id/tvAlgoInfo"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text=""
+                android:textColor="#8A94A6"
+                android:textSize="11sp" />
+
+            <!-- 效果开关 / 混合比 -->
+            <TextView
+                android:id="@+id/tvSecCore"
+                style="@style/SectionTitle"
+                android:text="效果器" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="启用效果"
+                    android:textColor="#E8EDF5"
+                    android:textSize="13sp" />
+
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/swOn"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content" />
+            </LinearLayout>
+
+            <!-- FX 返回 -->
+            <TextView
+                android:id="@+id/tvSecReturn"
+                style="@style/SectionTitle"
+                android:text="FX 返回" />
+
+            <LinearLayout
+                android:id="@+id/returnBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <!-- 参数 -->
+            <TextView
+                android:id="@+id/tvSecParams"
+                style="@style/SectionTitle"
+                android:text="参数" />
+
+            <TextView
+                android:id="@+id/tvParamHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="4dp"
+                android:text=""
+                android:textColor="#8A94A6"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/paramBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+        </LinearLayout>
+    </ScrollView>
+
+</LinearLayout>

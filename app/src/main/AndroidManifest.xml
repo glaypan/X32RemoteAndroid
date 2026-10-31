@@ -43,6 +43,13 @@
             </intent-filter>
         </activity>
 
+        <!-- 效果槽详情页：算法选择与参数调节（参数个数随算法变，独立页更好滚） -->
+        <activity
+            android:name=".ui.FxDetailActivity"
+            android:exported="false"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.X32Remote" />
+
     </application>
 
 </manifest>

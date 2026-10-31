@@ -107,4 +107,79 @@ class MixerStateTest {
         assertEquals(8, s.snapshotGroup("fxret").size)
         assertEquals(6, s.snapshotGroup("mtx").size)
     }
+
+    // ---------------------------------------------------------- FX 机架 (v1.6)
+
+    @Test
+    fun `fx slots start empty and unmuted`() {
+        val s = MixerState()
+        assertEquals(8, s.fxSlots().size)
+        for (st in s.fxSlots()) {
+            assertEquals("", st.algoType)      // 空槽: 真台没装效果
+            assertEquals(1, st.fxOn)
+            assertEquals(1, st.on)             // FX 返回未静音
+            assertEquals(0.75f, st.fader, 0.0001f)
+            assertTrue(st.params.isEmpty())
+        }
+    }
+
+    @Test
+    fun `out of range fx slot returns blank state instead of throwing`() {
+        val s = MixerState()
+        assertEquals("", s.fxSlot(0).algoType)
+        assertEquals("", s.fxSlot(99).algoType)
+        assertFalse(s.setFxAlgo(0, "HALL"))    // 越界写不进
+    }
+
+    @Test
+    fun `switching algo drops stale params`() {
+        // 换算法后旧参数号指的是完全不同的东西, 留着会把界面骗成假值
+        val s = MixerState()
+        s.setFxParam(1, "01", 3.5)
+        s.setFxParam(1, "02", 1.25)
+        assertEquals(2, s.fxSlot(1).params.size)
+
+        assertTrue(s.setFxAlgo(1, "HALL"))
+        assertEquals("HALL", s.fxSlot(1).algoType)
+        assertTrue("换算法必须清空旧参数", s.fxSlot(1).params.isEmpty())
+    }
+
+    @Test
+    fun `fx param keys are the raw two digit osc segment`() {
+        // X32Client 收到 /fx/1/par/01 时按原样存键, 界面取值也按 "%02d" 拼
+        val s = MixerState()
+        s.setFxParam(3, "01", 0.5)
+        s.setFxParam(3, "12", 0.25)
+        assertEquals(0.5, s.fxSlot(3).params["01"]!!, 1e-9)
+        assertEquals(0.25, s.fxSlot(3).params["12"]!!, 1e-9)
+        assertFalse(s.fxSlot(3).params.containsKey("1"))   // 不能用非补零键
+    }
+
+    @Test
+    fun `fx values are clamped to their own range`() {
+        val s = MixerState()
+        s.setFxMix(1, 2.0)
+        assertEquals(1.0, s.fxSlot(1).mix, 1e-9)
+        s.setFxMix(1, -1.0)
+        assertEquals(0.0, s.fxSlot(1).mix, 1e-9)
+
+        s.setFxFader(1, 3f)
+        assertEquals(1f, s.fxSlot(1).fader, 0.0001f)
+        s.setFxFader(1, -2f)
+        assertEquals(0f, s.fxSlot(1).fader, 0.0001f)
+    }
+
+    @Test
+    fun `fx enabled and return on are stored as 0 or 1`() {
+        val s = MixerState()
+        s.setFxEnabled(2, 0)
+        assertEquals(0, s.fxSlot(2).fxOn)
+        s.setFxEnabled(2, 7)             // 真台只认 0/1, 非 0 一律当 1
+        assertEquals(1, s.fxSlot(2).fxOn)
+
+        s.setFxReturnOn(2, 0)
+        assertEquals(0, s.fxSlot(2).on)
+        s.setFxReturnOn(2, 5)
+        assertEquals(1, s.fxSlot(2).on)
+    }
 }

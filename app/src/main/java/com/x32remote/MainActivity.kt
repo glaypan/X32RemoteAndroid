@@ -19,17 +19,21 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.x32remote.core.AppClient
 import com.x32remote.core.ConsoleInfo
 import com.x32remote.core.Discovery
+import com.x32remote.core.FxCalibration
 import com.x32remote.core.ShowProgress
 import com.x32remote.core.X32
-import com.x32remote.core.PairCode
 import com.x32remote.core.X32Client
+import com.x32remote.core.PairCode
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import com.x32remote.databinding.ActivityMainBinding
 import com.x32remote.ui.CardAdapter
 import com.x32remote.ui.ChannelAdapter
+import com.x32remote.ui.FxDetailActivity
+import com.x32remote.ui.FxRackAdapter
 import com.x32remote.ui.showRiderDialog
 import org.json.JSONArray
 import java.util.Locale
@@ -42,10 +46,11 @@ import java.util.Locale
 class MainActivity : AppCompatActivity(), X32Client.Listener {
 
     private lateinit var b: ActivityMainBinding
-    private val client = X32Client()
+    private val client = AppClient.client      // 与效果器详情页共用同一条连接
 
     private lateinit var channelAdapter: ChannelAdapter
     private lateinit var cardAdapter: CardAdapter
+    private lateinit var fxRackAdapter: FxRackAdapter
 
     private val prefs by lazy { getSharedPreferences("x32", Context.MODE_PRIVATE) }
 
@@ -69,6 +74,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         "auxin" to "AuxIn",
         "usb" to "USB",
         "fxret" to "FX",
+        "fxrack" to "效果器",     // 效果机架：8 槽算法与参数
         "mtx" to "Matrix",
         "main" to "Main",
         "cards" to "演出"
@@ -80,6 +86,11 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         super.onCreate(savedInstanceState)
         b = ActivityMainBinding.inflate(layoutInflater)
         setContentView(b.root)
+
+        // 效果库标定表（assets/fx_calibration.json）：OSC 协议不带参数元数据，
+        // 中文名/量程/枚举只能随 App 带。解码一次，失败时界面降级而不是崩。
+        FxCalibration.init(this)
+        FxCalibration.initFailed?.let { toast("效果库加载失败：$it（效果器页将降级）") }
 
         setupTabs()
         setupLists()
@@ -154,6 +165,15 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         )
         b.rvCards.layoutManager = LinearLayoutManager(this)
         b.rvCards.adapter = cardAdapter
+
+        fxRackAdapter = FxRackAdapter { slot ->
+            startActivity(
+                Intent(this, FxDetailActivity::class.java)
+                    .putExtra(FxDetailActivity.EXTRA_SLOT, slot)
+            )
+        }
+        b.rvFx.layoutManager = LinearLayoutManager(this)
+        b.rvFx.adapter = fxRackAdapter
     }
 
     private fun setupTopBar() {
@@ -171,14 +191,16 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         currentTab = i
         val key = tabs[i].first
         val isCards = key == "cards"
+        val isFxRack = key == "fxrack"
 
-        b.rvList.visibility = if (isCards) View.GONE else View.VISIBLE
+        b.rvList.visibility = if (isCards || isFxRack) View.GONE else View.VISIBLE
         b.rvCards.visibility = if (isCards) View.VISIBLE else View.GONE
+        b.rvFx.visibility = if (isFxRack) View.VISIBLE else View.GONE
 
-        if (isCards) {
-            cardAdapter.submit(client.show.cards)
-        } else {
-            channelAdapter.group = key
+        when {
+            isCards -> cardAdapter.submit(client.show.cards)
+            isFxRack -> fxRackAdapter.refresh()
+            else -> channelAdapter.group = key
         }
         refreshTabs()
     }
@@ -195,6 +217,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
 
     override fun onStateDirty() {
         if (b.rvList.visibility == View.VISIBLE) channelAdapter.refresh()
+        if (b.rvFx.visibility == View.VISIBLE) fxRackAdapter.refresh()
         updateTopBar()
     }
 

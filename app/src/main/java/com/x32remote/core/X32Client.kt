@@ -6,6 +6,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** 供演出引擎回调的发送能力，避免与 X32Client 形成构造期循环依赖 */
 interface OscSender {
@@ -56,6 +57,12 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
 
     /** 演出进度出口，UI 可订阅（渐变与 wait 期间状态不变，靠它驱动进度条） */
     @Volatile var showProgressSink: ((ShowProgress) -> Unit)? = null
+
+    /**
+     * 第二个状态出口：listener 是单值且已被主界面占用，
+     * 效果器详情页这类二级页面订阅这里（与 listener 同一节奏、同一线程）。
+     */
+    @Volatile var extraDirtySink: (() -> Unit)? = null
 
     val show: ShowEngine = ShowEngine(state, this).also { engine ->
         engine.eventSink = { text -> ui.post { listener?.onEvent(text) } }
@@ -206,6 +213,96 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
         markDirty()
     }
 
+    // ------------------------------------------------------------ FX 机架 (v1.6)
+
+    /**
+     * 查一个效果槽的详情: 算法/开关/混合比/槽名 + FX 返回推子静音 +
+     * 按标定表个数的参数。参数个数随算法变 (HALL 12, GEQ2 多达 64) ——
+     * 查不到的算法保守问前 8 个。
+     */
+    fun queryFxDetail(fxId: Int) {
+        val lib = FxCalibration.lib
+        val n = lib?.algo(state.fxSlot(fxId).algoType)?.n ?: 8
+        val msgs = ArrayList<OscMessage>(n + 6)
+        msgs.add(OscMessage(X32.fxType(fxId)))
+        msgs.add(OscMessage(X32.fxOn(fxId)))
+        msgs.add(OscMessage(X32.fxMix(fxId)))
+        msgs.add(OscMessage(X32.fxName(fxId)))
+        msgs.add(OscMessage(X32.fxrtnFader(fxId)))
+        msgs.add(OscMessage(X32.fxrtnOn(fxId)))
+        for (p in 1..n) msgs.add(OscMessage(X32.fxParam(fxId, p)))
+        sendAll(msgs)
+    }
+
+    /** 切换算法 (真台枚举名, 如 "GEQ")。heavy 算法只能进 FX1-4 —— 本地先拦一道。 */
+    fun setFxType(fxId: Int, algo: String) {
+        val lib = FxCalibration.lib ?: return
+        if (algo.isNotEmpty() && !lib.slotAllows(fxId, algo)) return
+        state.setFxAlgo(fxId, algo)          // 同时清空旧参数 (换算法旧值作废)
+        send(OscMessage(X32.fxType(fxId), listOf(algo)))
+        queryFxDetail(fxId)                  // 参数全变, 按新算法重问
+        markDirty()
+    }
+
+    fun setFxEnabled(fxId: Int, on: Boolean) {
+        state.setFxEnabled(fxId, if (on) 1 else 0)
+        send(OscMessage(X32.fxOn(fxId), listOf(if (on) 1 else 0)))
+        markDirty()
+    }
+
+    fun setFxMix(fxId: Int, mix: Double) {
+        val v = mix.coerceIn(0.0, 1.0)
+        state.setFxMix(fxId, v)
+        send(OscMessage(X32.fxMix(fxId), listOf(v.toFloat())))
+        markDirty()
+    }
+
+    /** FX 返回推子 (效果器槽页的推子; 与卡片走 setValue 的 manual 源分开) */
+    fun setFxReturnFader(fxId: Int, v: Float) {
+        val f = v.coerceIn(0f, 1f)
+        state.setFxFader(fxId, f)
+        send(OscMessage(X32.fxrtnFader(fxId), listOf(f)))
+        markDirty()
+    }
+
+    /** FX 返回静音 (true = 静音) */
+    fun setFxReturnMuted(fxId: Int, muted: Boolean) {
+        val on = if (muted) 0 else 1
+        state.setFxReturnOn(fxId, on)
+        send(OscMessage(X32.fxrtnOn(fxId), listOf(on)))
+        markDirty()
+    }
+
+    /**
+     * 写一个算法参数。field 走标定表解析 (算法 field / parNN / 语义别名),
+     * 枚举参数线上发 int, 数值发 float —— 与真台一致。
+     * 本地乐观更新: 模拟器对写入不回包, 真台靠订阅推送, 两种都不能让滑杆弹回。
+     */
+    fun setFxParam(fxId: Int, field: String, value: Double) {
+        val lib = FxCalibration.lib ?: return
+        val algo = state.fxSlot(fxId).algoType
+        if (algo.isEmpty()) return
+        val spec = lib.paramSpec(algo, field)
+        if (spec == null) {
+            // 未知算法 (真台装了本库没有的效果): 没有标定就没有量程, 按通用 0-1 写,
+            // 至少保留旧版通用滑杆的能力; 越界值真台自己会钳。
+            val digits = if (field.startsWith("par")) field.drop(3) else field
+            val n = digits.toIntOrNull() ?: return
+            if (n !in 1..64) return
+            val v = (if (value.isFinite()) value else 0.0).coerceIn(0.0, 1.0)
+            send(OscMessage(X32.fxParam(fxId, n), listOf(v.toFloat())))
+            state.setFxParam(fxId, String.format(java.util.Locale.US, "%02d", n), v)
+            markDirty()
+            return
+        }
+        val pnum = lib.fieldToPar(algo, field) ?: return
+        val v = spec.clamp(value)
+        val arg: Any = if (spec.isEnum) v.roundToInt() else v.toFloat()
+        send(OscMessage(X32.fxParam(fxId, pnum), listOf(arg)))
+        state.setFxParam(fxId, String.format(java.util.Locale.US, "%02d", pnum), v)
+        markDirty()
+    }
+
     // ------------------------------------------------------------ 全量查询
 
     /** 拉取一轮全量状态（推子/静音/名称/DCA 归属），按 64 条一批用 Bundle 发送。 */
@@ -226,11 +323,21 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
         }
         for (i in 1..6) msgs.add(OscMessage(String.format(java.util.Locale.US, "/auxin/%02d/mix/fader", i)))
         for (i in 1..2) msgs.add(OscMessage(String.format(java.util.Locale.US, "/usb/%02d/mix/fader", i)))
-        for (i in 1..8) msgs.add(OscMessage(String.format(java.util.Locale.US, "/fxret/%02d/mix/fader", i)))
+        // ⚠️ FX 返回真台拼写 fxrtn (两位补零); fxret 是旧拼写只收不发
+        for (i in 1..8) msgs.add(OscMessage(X32.fxrtnFader(i)))
         for (i in 1..6) msgs.add(OscMessage(String.format(java.util.Locale.US, "/mtx/%02d/mix/fader", i)))
 
         msgs.add(OscMessage(X32.MAIN_FADER))
         msgs.add(OscMessage(X32.MAIN_ON))
+
+        // FX 机架 8 个槽: 算法/开关/混合比/槽名 (参数按算法个数 4~64 不等,
+        // 全量问会把连接时的包量撑爆, 由效果器页按需查 —— queryFxDetail)
+        for (i in 1..8) {
+            msgs.add(OscMessage(X32.fxType(i)))
+            msgs.add(OscMessage(X32.fxOn(i)))
+            msgs.add(OscMessage(X32.fxMix(i)))
+            msgs.add(OscMessage(X32.fxName(i)))
+        }
 
         for (i in 1..32) msgs.add(OscMessage(X32.channelDcaMask(i)))
         for (i in 1..32) msgs.add(OscMessage(X32.nameAddress("ch", i)))
@@ -263,6 +370,70 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
     private fun handleIncoming(m: OscMessage) {
         val addr = m.address
         val raw = m.args.firstOrNull()
+
+        // FX 返回 (/fxrtn/NN/mix/fader|on|config/name): 喂两个状态轨 ——
+        //   1) fxret 组 cell: 卡片 fade_all 的渐变起点与冲突检测读它
+        //   2) FxSlotState:   效果器槽页的推子/静音显示
+        // ⚠️ fxrtn 是真台拼写; fxret 是旧拼写 (旧模拟器/旧固件), 都收。
+        //    放在通用名称处理器**之前**: /fxrtn/NN/config/name 也归这里管。
+        if (addr.startsWith("/fxrtn/") || addr.startsWith("/fxret/")) {
+            val p = addr.split('/')
+            val i = p.getOrNull(2)?.toIntOrNull() ?: return
+            if (i !in 1..8) return
+            when {
+                addr.endsWith("/fader") -> {
+                    val f = OscCodec.argAsFloat(raw) ?: return
+                    applyRemoteFader("fxret_fader", i, f)   // 含回声抑制 + 冲突检测
+                    state.setFxFader(i, f)
+                }
+                addr.endsWith("/on") -> {
+                    val on = OscCodec.argAsInt(raw) ?: return
+                    state.setOn("fxret_on", i, on)
+                    state.setFxReturnOn(i, on)
+                }
+                addr.endsWith("/config/name") -> {
+                    val s = OscCodec.argAsString(raw) ?: return
+                    state.setName("fxret", i, s)
+                    state.setFxName(i, s)
+                }
+            }
+            return
+        }
+
+        // FX 机架 (/fx/N/type|on|mix|par/NN|config/name): 槽号不补零, 参数号补零。
+        // v1.6 效果库全量标定后, 算法/开关/混合比/参数全部可读可写。
+        // ⚠️ 必须排除 /fxrtn/ (上面已处理) —— "/fx/".hasPrefix 不会误中 fxrtn,
+        //    但 /fx/N/config/name 会被通用名称处理器漏掉 (NAME_COUNTS 无 fx),
+        //    所以这段放在名称处理器之前, 自己吃掉 config/name。
+        if (addr.startsWith("/fx/")) {
+            val p = addr.split('/')
+            val i = p.getOrNull(1)?.toIntOrNull() ?: return
+            if (i !in 1..8) return
+            when {
+                addr.endsWith("/type") -> {
+                    // 空串 = 空槽; setFxAlgo 会清空参数 (换算法旧值作废)
+                    val s = OscCodec.argAsString(raw) ?: return
+                    state.setFxAlgo(i, s)
+                }
+                addr.endsWith("/on") -> {
+                    val n = OscCodec.argAsInt(raw) ?: return
+                    state.setFxEnabled(i, n)
+                }
+                addr.endsWith("/mix") -> {
+                    val n = OscCodec.argAsFloat(raw) ?: return
+                    state.setFxMix(i, n.toDouble())
+                }
+                addr.endsWith("/config/name") -> {
+                    val s = OscCodec.argAsString(raw) ?: return
+                    state.setFxName(i, s)
+                }
+                p.size >= 4 && p[2] == "par" -> {
+                    val n = OscCodec.argAsFloat(raw) ?: return
+                    state.setFxParam(i, p[3], n.toDouble())   // 键 = OSC 原始段 "01".."NN"
+                }
+            }
+            return
+        }
 
         // 名称
         if (addr.endsWith("/config/name")) {
@@ -323,7 +494,8 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
     // ------------------------------------------------------------ 地址解析
 
     /** 例：/ch/05/mix/fader -> ("ch_fader", 5)；/main/st/mix/on -> ("main_on", 0) */
-    private fun parseFaderOn(addr: String): Pair<String, Int>? {
+    // internal 而非 private: JVM 单测要覆盖"三种 FX 返回拼写归一"这条真回归
+    internal fun parseFaderOn(addr: String): Pair<String, Int>? {
         val p = addr.split('/')
         if (p.size < 3) return null
         val head = p[1]
@@ -346,12 +518,17 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
             }
         }
 
-        if (head !in arrayOf("ch", "bus", "auxin", "usb", "fxret", "mtx")) return null
+        // ⚠️ fxrtn 是真台拼写 (Maillot: /fxrtn/[01..08]/mix/fader)，
+        //    fxret 是旧拼写 —— 两者归一到内部组名 fxret (卡片配置存的是 kind)
+        val grp = when (head) {
+            "ch", "bus", "auxin", "usb", "mtx" -> head
+            else -> X32.fxReturnGroupOf(head) ?: return null
+        }
         val idx = p.getOrNull(2)?.toIntOrNull() ?: return null
         if (p.getOrNull(3) != "mix") return null
         return when (p.getOrNull(4)) {
-            "fader" -> "${head}_fader" to idx
-            "on" -> "${head}_on" to idx
+            "fader" -> "${grp}_fader" to idx
+            "on" -> "${grp}_on" to idx
             else -> null
         }
     }
@@ -362,8 +539,9 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
         val head = p[1]
         if (head == "main") return "main" to 0
         val idx = p.getOrNull(2)?.toIntOrNull() ?: return null
-        if (head !in arrayOf("ch", "bus", "dca", "auxin", "usb", "fxret", "mtx")) return null
-        return head to idx
+        if (head !in arrayOf("ch", "bus", "dca", "auxin", "usb", "fxret", "fxrtn", "mtx")) return null
+        // fxrtn 是真台拼写, 归一到内部组名 fxret
+        return (if (head == "fxrtn") "fxret" else head) to idx
     }
 
     // ------------------------------------------------------------ 定时任务
@@ -387,7 +565,10 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
     private val flushTask = object : Runnable {
         override fun run() {
             if (!running) return
-            if (dirty.getAndSet(false)) listener?.onStateDirty()
+            if (dirty.getAndSet(false)) {
+                listener?.onStateDirty()
+                extraDirtySink?.invoke()
+            }
             ui.postDelayed(this, 100)
         }
     }
