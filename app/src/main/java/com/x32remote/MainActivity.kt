@@ -25,6 +25,7 @@ import com.x32remote.core.Discovery
 import com.x32remote.core.FxCalibration
 import com.x32remote.core.ShowProgress
 import com.x32remote.core.X32
+import com.x32remote.core.ParamSpecs
 import com.x32remote.core.X32Client
 import com.x32remote.core.PairCode
 import com.journeyapps.barcodescanner.ScanContract
@@ -32,6 +33,7 @@ import com.journeyapps.barcodescanner.ScanOptions
 import com.x32remote.databinding.ActivityMainBinding
 import com.x32remote.ui.CardAdapter
 import com.x32remote.ui.ChannelAdapter
+import com.x32remote.ui.ChannelDetailActivity
 import com.x32remote.ui.FxDetailActivity
 import com.x32remote.ui.FxRackAdapter
 import com.x32remote.ui.showRiderDialog
@@ -91,6 +93,10 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         // 中文名/量程/枚举只能随 App 带。解码一次，失败时界面降级而不是崩。
         FxCalibration.init(this)
         FxCalibration.initFailed?.let { toast("效果库加载失败：$it（效果器页将降级）") }
+
+        // 通道参数登记表（assets/param_specs.json）：EQ/门/压缩/插入/增益/声像的
+        // 中文名、量程、枚举、页签全在里面。同样由服务端登记表导出，禁止手写。
+        ParamSpecs.init(applicationContext)
 
         setupTabs()
         setupLists()
@@ -353,6 +359,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             "导出卡片配置到剪贴板",
             "从剪贴板导入卡片",
             "重新拉取台面状态",
+            "通道参数（均衡/门/压缩/插入/发送）",
             "自动增益 / 自动推子（需电脑端服务）",
             "断开连接",
             "关于"
@@ -368,13 +375,14 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
                         client.requestFullState()
                         toast("已请求全量状态")
                     }
-                    4 -> showRider()
-                    5 -> {
+                    4 -> openParamPanel()
+                    5 -> showRider()
+                    6 -> {
                         client.disconnect()
                         updateTopBar()
                         toast("已断开")
                     }
-                    6 -> AlertDialog.Builder(this)
+                    7 -> AlertDialog.Builder(this)
                         .setTitle("X32 Remote")
                         .setMessage(
                             "原生 Android 遥控端\n" +
@@ -385,6 +393,31 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
                         .setPositiveButton("好", null)
                         .show()
                 }
+            }
+            .setNegativeButton("关闭", null)
+            .show()
+    }
+
+    /**
+     * 打开"当前分组"的通道参数面板。
+     *
+     * 参数面板本身按登记表渲染（见 [ChannelDetailActivity]），这里只负责选路：
+     * 用户在 Bus 页点开就是 Bus 03 的 6 段 EQ / 压缩 / 插入 / 发送，在 FX 页点开
+     * 就是 FX 返回的声像与发送 —— 不再"只有输入通道能调"。
+     */
+    private fun openParamPanel() {
+        if (!ParamSpecs.isReady()) {
+            toast("参数表未加载")
+            return
+        }
+        val key = tabs[currentTab].first
+        val g = if (ParamSpecs.caps(key) != null) key else "ch"
+        val caps = ParamSpecs.caps(g) ?: return
+        val items = (1..caps.size).map { ParamSpecs.itemLabel(g, it) }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("${caps.label} · 参数面板")
+            .setItems(items) { _, which ->
+                startActivity(ChannelDetailActivity.intent(this, g, which + 1))
             }
             .setNegativeButton("关闭", null)
             .show()

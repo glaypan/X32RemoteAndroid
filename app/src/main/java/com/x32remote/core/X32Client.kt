@@ -465,6 +465,21 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
             return
         }
 
+        // 通道处理参数（EQ / 门 / 压缩 / 插入 / 增益 / 声像）—— 表驱动。
+        // 地址表随包携带（ParamSpecs），模拟器加参数这里零改动；
+        // 以前原生端只做了推子/静音，所以详情页能调的只有"音量"。
+        val pnum = parsedArg(raw)
+        if (pnum != null) {
+            ParamSpecs.parse(addr)?.let { (g, i, f) ->
+                if (state.setParam(state.paramKey(g, i, f), pnum)) dirty.set(true)
+                return
+            }
+            ParamSpecs.parseSend(addr)?.let { key ->
+                if (state.setParam(key, pnum)) dirty.set(true)
+                return
+            }
+        }
+
         // 推子 / 静音
         val target = parseFaderOn(addr) ?: return
         val (kind, idx) = target
@@ -476,6 +491,69 @@ class X32Client(val state: MixerState = MixerState()) : OscSender {
             val on = OscCodec.argAsInt(raw) ?: return
             state.setOn(kind, idx, on)
         }
+    }
+
+    /** OSC 数值参数（float 或 int）→ Double；其它类型返回 null */
+    private fun parsedArg(raw: Any?): Double? = when (raw) {
+        is Float -> raw.toDouble()
+        is Int -> raw.toDouble()
+        is Double -> raw
+        is Boolean -> if (raw) 1.0 else 0.0
+        else -> null
+    }
+
+    // ------------------------------------------------------------ 通道处理参数（表驱动）
+
+    /**
+     * 按登记表把一个通道的**全部处理参数**问一遍。
+     *
+     * 数量由表决定：ch 57 / bus 47 / main 44 / auxin 20 / mtx 45 / fxret 1（只有声像）。
+     * 都是无参数查询，真台逐条回值。
+     */
+    fun queryParams(group: String, idx: Int) {
+        if (!ParamSpecs.isReady()) return
+        for (row in ParamSpecs.rows(group)) send(OscMessage(row.address(idx)))
+    }
+
+    /** 一个通道当前读到的参数值（缺的用出厂值兜底，界面不会出现空控件） */
+    fun paramValue(group: String, idx: Int, row: ParamSpecs.Row): Double =
+        state.param(state.paramKey(group, idx, row.field)) ?: row.default
+
+    /**
+     * 写一个参数。类型转换在 [ParamSpecs.Row.wire] 里（bool→int、压缩比→下标、
+     * 其它→float）—— 少了这一步，`dyn_ratio` 发 4.0 会被真台当成第 4 档（5:1）。
+     */
+    fun setParam(group: String, idx: Int, row: ParamSpecs.Row, value: Double) {
+        val v = row.clamp(value)
+        if (state.setParam(state.paramKey(group, idx, row.field), v)) dirty.set(true)
+        send(OscMessage(row.address(idx), listOf(row.wire(v))))
+    }
+
+    /** 问一组发送（源一路 × 全部目标）的 level/on/tap */
+    fun querySends(group: String, src: Int) {
+        if (!ParamSpecs.isReady()) return
+        val c = ParamSpecs.caps(group) ?: return
+        if (!c.hasSend) return
+        for (bus in 1..c.send) {
+            for (f in ParamSpecs.sendFields(group)) {
+                ParamSpecs.sendAddress(group, src, bus, f)?.let { send(OscMessage(it)) }
+            }
+        }
+    }
+
+    fun sendValue(group: String, src: Int, bus: Int, field: String): Double? =
+        state.param(ParamSpecs.sendKey(group, src, bus, field))
+
+    fun setSend(group: String, src: Int, bus: Int, field: String, value: Double) {
+        val addr = ParamSpecs.sendAddress(group, src, bus, field) ?: return
+        val v = when (field) {
+            "tap" -> Math.round(value).toDouble().coerceIn(0.0, 4.0)
+            "on" -> if (value != 0.0) 1.0 else 0.0
+            else -> value.coerceIn(0.0, 1.0)
+        }
+        if (state.setParam(ParamSpecs.sendKey(group, src, bus, field), v)) dirty.set(true)
+        val arg: Any = if (field == "level") v.toFloat() else v.toInt()
+        send(OscMessage(addr, listOf(arg)))
     }
 
     /** 真台回读：先判回声抑制，再交冲突检测（仅当该路正被卡片驱动时才会判定为干预） */

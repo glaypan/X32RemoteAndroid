@@ -213,4 +213,30 @@ class MixerState {
     fun setFxParam(i: Int, parKey: String, v: Double): Boolean = updateFxSlot(i) {
         it.copy(params = it.params + (parKey to v))
     }
+
+    // ------------------------------------------------------------ 通道处理参数 (表驱动)
+
+    /**
+     * 处理参数表：键 `"ch/01/trim"` / `"bus/03/eq2_g"` / `"send/ch/01/03/level"`。
+     *
+     * 为什么不塞进 [ChannelState]：各组能力不同（Bus 6 段 EQ、FX 返回连 EQ 都没有），
+     * 每加一个参数就得加一个字段、改一次 data class。这里用"组/路号/字段"做键，
+     * 配合 [ParamSpecs] 的地址反查，新参数零改动就能显示与调节。
+     */
+    private val params = HashMap<String, Double>()
+
+    fun param(key: String): Double? = synchronized(lock) { params[key] }
+
+    /** 变化返回 true（用于抑制无意义刷新） */
+    fun setParam(key: String, v: Double): Boolean = synchronized(lock) {
+        if (params[key] == v) return false
+        params[key] = v
+        true
+    }
+
+    fun paramKey(group: String, idx: Int, field: String): String =
+        String.format("%s/%02d/%s", group, idx, field)
+
+    /** 一组参数的快照（详情页一次性取，避免边刷边变） */
+    fun paramsSnapshot(): Map<String, Double> = synchronized(lock) { HashMap(params) }
 }
