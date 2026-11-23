@@ -23,6 +23,7 @@ import com.x32remote.core.AppClient
 import com.x32remote.core.ConsoleInfo
 import com.x32remote.core.Discovery
 import com.x32remote.core.FxCalibration
+import com.x32remote.core.FxGallery
 import com.x32remote.core.ShowProgress
 import com.x32remote.core.X32
 import com.x32remote.core.ParamSpecs
@@ -35,6 +36,7 @@ import com.x32remote.ui.CardAdapter
 import com.x32remote.ui.ChannelAdapter
 import com.x32remote.ui.ChannelDetailActivity
 import com.x32remote.ui.FxDetailActivity
+import com.x32remote.ui.FxGalleryActivity
 import com.x32remote.ui.FxRackAdapter
 import com.x32remote.ui.showRiderDialog
 import org.json.JSONArray
@@ -97,6 +99,10 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         // 通道参数登记表（assets/param_specs.json）：EQ/门/压缩/插入/增益/声像的
         // 中文名、量程、枚举、页签全在里面。同样由服务端登记表导出，禁止手写。
         ParamSpecs.init(applicationContext)
+
+        // 效果器图鉴（assets/fx/fxlib.json + 真机界面截图）：认算法用，
+        // 只有图不参与参数运算，加载失败就是图鉴页少几张图，不影响遥控。
+        FxGallery.init(applicationContext)
 
         setupTabs()
         setupLists()
@@ -190,6 +196,9 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
             toast("已停止演出")
         }
         b.btnMenu.setOnClickListener { showMenu() }
+        b.btnFxGallery.setOnClickListener {
+            startActivity(Intent(this, FxGalleryActivity::class.java))
+        }
         updateTopBar()
     }
 
@@ -202,6 +211,7 @@ class MainActivity : AppCompatActivity(), X32Client.Listener {
         b.rvList.visibility = if (isCards || isFxRack) View.GONE else View.VISIBLE
         b.rvCards.visibility = if (isCards) View.VISIBLE else View.GONE
         b.rvFx.visibility = if (isFxRack) View.VISIBLE else View.GONE
+        b.btnFxGallery.visibility = if (isFxRack) View.VISIBLE else View.GONE
 
         when {
             isCards -> cardAdapter.submit(client.show.cards)

@@ -54,6 +54,13 @@
             style="@style/Chip"
             android:text="■ 停止" />
 
+        <!-- 效果器图鉴：只在「效果器」标签下出现（v1.8） -->
+        <TextView
+            android:id="@+id/btnFxGallery"
+            style="@style/Chip"
+            android:text="🖼 图鉴"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/btnScan"
             style="@style/Chip"

@@ -2,6 +2,7 @@ package com.x32remote.ui
 
 import android.os.Bundle
 import android.view.Gravity
+import android.view.View
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
@@ -13,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.x32remote.core.AppClient
 import com.x32remote.core.FxAlgoSpec
 import com.x32remote.core.FxCalibration
+import com.x32remote.core.FxGallery
 import com.x32remote.core.FxParamSpec
 import com.x32remote.core.X32
 import com.x32remote.databinding.ActivityFxDetailBinding
@@ -155,6 +157,20 @@ class FxDetailActivity : AppCompatActivity() {
         }
 
         selectAlgoInSpinner(st.algoType)
+
+        // ---- 真机面板图（v1.8）：只有已知算法才有图，空槽/未知算法整块隐藏
+        val shot = FxGallery.item(st.algoType)
+        val bmp = shot?.let { FxGallery.bitmap(this, it.img) }
+        if (bmp != null) {
+            b.ivPanel.setImageBitmap(bmp)
+            b.ivPanel.visibility = View.VISIBLE
+            b.tvPanelNote.text = "真机面板 · ${shot.title}" + if (shot.tag != null) " · ${shot.tag}" else ""
+            b.tvPanelNote.visibility = View.VISIBLE
+        } else {
+            b.ivPanel.setImageDrawable(null)
+            b.ivPanel.visibility = View.GONE
+            b.tvPanelNote.visibility = View.GONE
+        }
 
         // ---- 算法信息
         b.tvAlgoInfo.text = if (algo == null) {

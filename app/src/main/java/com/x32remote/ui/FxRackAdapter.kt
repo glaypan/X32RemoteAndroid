@@ -1,10 +1,12 @@
 package com.x32remote.ui
 
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
 import com.x32remote.core.AppClient
 import com.x32remote.core.FxCalibration
+import com.x32remote.core.FxGallery
 import com.x32remote.databinding.ItemFxSlotBinding
 
 /**
@@ -72,6 +74,16 @@ class FxRackAdapter(
         b.tvState.setTextColor(
             if (on) 0xFF22D3A8.toInt() else 0xFF8A94A6.toInt()
         )
+
+        // 真机面板截图（v1.8）：认算法靠它，不再只靠名字
+        val shot = FxGallery.item(st.algoType)?.let { FxGallery.bitmap(b.root.context, it.img) }
+        if (shot != null) {
+            b.ivPanel.setImageBitmap(shot)
+            b.ivPanel.visibility = View.VISIBLE
+        } else {
+            b.ivPanel.setImageDrawable(null)
+            b.ivPanel.visibility = View.GONE
+        }
 
         b.root.setOnClickListener { onOpen(slot) }
     }
