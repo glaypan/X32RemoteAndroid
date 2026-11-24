@@ -88,7 +88,8 @@ data class FxParamSpec(
 
 /** 一种效果算法的标定 (61 种之一) */
 data class FxAlgoSpec(
-    val label: String,          // 中文名
+    val label: String,          // 中文名 (辅助)
+    val en: String?,            // 真台显示名 (X32-Edit / 固件 FX 页上的写法, 如 "Stereo Chorus")
     val cat: String,            // 分类 (reverb/delay/combo/mod/pitch/eq/dyn/enh/amp)
     val heavy: Boolean,         // true = 仅 FX 1-4 (真台 DSP 限制)
     val n: Int,                 // 参数个数
@@ -112,6 +113,10 @@ class FxLib private constructor(
 ) {
 
     fun algo(name: String): FxAlgoSpec? = algos[name]
+
+    /** 算法显示名: 真台名优先, 中文兜底 (用户照着台子上的字找效果器)。 */
+    fun displayName(name: String): String =
+        algos[name]?.let { it.en ?: it.label } ?: name
 
     /** 槽位能否装这个算法 (heavy 仅 FX 1-4) */
     fun slotAllows(slot: Int, name: String): Boolean {
@@ -180,6 +185,7 @@ class FxLib private constructor(
                 }
                 algos[name] = FxAlgoSpec(
                     label = a.getString("label"),
+                    en = if (a.isNull("en")) null else a.optString("en", "").ifEmpty { null },
                     cat = a.getString("cat"),
                     heavy = a.optBoolean("heavy", false),
                     n = a.getInt("n"),

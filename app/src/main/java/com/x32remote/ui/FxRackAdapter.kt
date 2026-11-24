@@ -51,22 +51,19 @@ class FxRackAdapter(
             b.tvSub.text = "点右侧选择算法"
             b.tvAlgo.setTextColor(0xFF8A94A6.toInt())
         } else {
-            b.tvAlgo.text = if (name.isBlank()) {
-                algo?.label ?: st.algoType
-            } else {
-                "${algo?.label ?: st.algoType} · $name"
-            }
+            // 真台名当标题（台子/ X32-Edit 上写的就是这个），中文名降到副行。
+            // 只给中文等于让用户自己翻译："立体声合唱" 在台子上写着 "Stereo Chorus"。
+            val en = algo?.let { it.en ?: it.label } ?: st.algoType
+            val zh = algo?.label?.takeIf { it != en } ?: ""
+            b.tvAlgo.text = if (name.isBlank()) en else "$en · $name"
             b.tvAlgo.setTextColor(0xFFE8EDF5.toInt())
             val cat = algo?.let { lib?.catLabel?.get(it.cat) ?: it.cat } ?: ""
-            b.tvSub.text = buildString {
-                append(cat)
-                append(" · ")
-                append(st.params.size)
-                append("/")
-                append(algo?.n ?: st.params.size)
-                append(" 参数")
-                if (algo?.heavy == true) append(" · 仅 FX1-4")
-            }
+            b.tvSub.text = buildList {
+                if (zh.isNotEmpty()) add(zh)
+                if (cat.isNotEmpty()) add(cat)
+                add("${st.params.size}/${algo?.n ?: st.params.size} 参数")
+                if (algo?.heavy == true) add("仅 FX1-4")
+            }.joinToString(" · ")
         }
 
         val on = st.fxOn != 0

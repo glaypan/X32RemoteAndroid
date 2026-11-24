@@ -93,14 +93,15 @@ class FxDetailActivity : AppCompatActivity() {
             for (n in catNames) {
                 val a = lib.algo(n) ?: continue
                 names.add(n)
+                // 真台名在前、分类在后: 用户在台子/X32-Edit 上看到的是 "Stereo Chorus",
+                // 不是"立体声合唱"。枚举代码放括号里, 排障对日志用。
                 entries.add(
                     buildString {
-                        append(catLabel)
-                        append(" · ")
-                        append(a.label)
+                        append(a.en ?: a.label)
                         append(" (")
                         append(n)
-                        append(")")
+                        append(") · ")
+                        append(catLabel)
                         if (a.heavy) append(" ·仅FX1-4")
                     }
                 )
@@ -124,7 +125,7 @@ class FxDetailActivity : AppCompatActivity() {
                     return
                 }
                 client.setFxType(slot, target)
-                toast(if (target.isEmpty()) "已清空 FX $slot" else "FX $slot → ${lib2?.algo(target)?.label ?: target}")
+                toast(if (target.isEmpty()) "已清空 FX $slot" else "FX $slot → ${lib2?.algo(target)?.let { it.en ?: it.label } ?: target}")
                 render()
             }
 
@@ -152,7 +153,7 @@ class FxDetailActivity : AppCompatActivity() {
             append(slot)
             if (algo != null) {
                 append(" · ")
-                append(algo.label)
+                append(algo.en ?: algo.label)
             }
         }
 
@@ -177,6 +178,8 @@ class FxDetailActivity : AppCompatActivity() {
             if (st.algoType.isEmpty()) "空槽：选一个算法" else "未标定的算法 ${st.algoType}"
         } else {
             buildString {
+                val zh = algo.label.takeIf { it != (algo.en ?: it) }
+                if (zh != null) { append(zh); append(" · ") }
                 append(lib?.catLabel?.get(algo.cat) ?: algo.cat)
                 append(" · ")
                 append(algo.n)
