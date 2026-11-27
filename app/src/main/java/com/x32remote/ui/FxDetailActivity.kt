@@ -1,5 +1,6 @@
 package com.x32remote.ui
 
+import android.content.Context
 import android.os.Bundle
 import android.view.Gravity
 import android.view.View
@@ -15,6 +16,7 @@ import com.x32remote.core.AppClient
 import com.x32remote.core.FxAlgoSpec
 import com.x32remote.core.FxCalibration
 import com.x32remote.core.FxGallery
+import com.x32remote.core.FxParamCaps
 import com.x32remote.core.FxParamSpec
 import com.x32remote.core.X32
 import com.x32remote.databinding.ActivityFxDetailBinding
@@ -43,6 +45,13 @@ class FxDetailActivity : AppCompatActivity() {
     /** 手指正按在滑杆上 —— 期间拒绝外部刷新重建行 */
     private var dragging = false
 
+    /**
+     * 当前控台的参数可写性表。
+     * null = 还没拉到 / 拉失败 → 一律按"可写"处理（见 [loadCaps] 的降级说明）。
+     */
+    private var caps: FxParamCaps.Caps? = null
+    private var capsBusy = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         b = ActivityFxDetailBinding.inflate(layoutInflater)
@@ -67,11 +76,54 @@ class FxDetailActivity : AppCompatActivity() {
         client.extraDirtySink = { if (!dragging) render() }
         client.queryFxDetail(slot)
         render()
+        loadCaps()
     }
 
     override fun onPause() {
         client.extraDirtySink = null
         super.onPause()
+    }
+
+    // ============================================================ 参数可写性
+
+    /**
+     * 拉一次 `/api/fxcaps`，决定哪些滑杆要置灰。
+     *
+     * 走的是**电脑端服务**的 HTTP 端口（与自动增益面板同一个设置项 `rider_port`，
+     * 它其实就是配对码里的网页端口），不是 OSC 的 10023。
+     *
+     * 失败（没服务、端口关着、连的是真台）→ caps 归 null → 全部可写。
+     * 这里必须显式清回 null：用户可能刚从 WING 切到 X32，留着上一次的灰表
+     * 会让 X32 上本来能调的参数莫名其妙变灰。
+     */
+    private fun loadCaps() {
+        val host = client.targetIp
+        if (host.isEmpty() || capsBusy) return
+        val port = getSharedPreferences("x32", Context.MODE_PRIVATE).getInt("rider_port", 8080)
+        capsBusy = true
+        Thread {
+            val got = try {
+                FxParamCaps.fetch(FxParamCaps.baseUrl(host, port))
+            } catch (e: Exception) {
+                null
+            }
+            runOnUiThread {
+                capsBusy = false
+                caps = got
+                // 手指在滑杆上时不动 DOM：一重建就把手指下的控件换掉了
+                if (!dragging && !isFinishing) render()
+            }
+        }.start()
+    }
+
+    /** 这个 par 在当前控台有地址吗？caps 没拿到 → 放行 */
+    private fun allows(par: Int): Boolean = caps?.allows(slot, par) ?: true
+
+    /** 参数区尾注：本控台未标定的项数（一项都没有就不显示） */
+    private fun blockedHint(pars: List<Int>): String {
+        val c = caps ?: return ""
+        val n = c.blockedCount(slot, pars)
+        return if (n > 0) " · $n 项本控台未标定（只读）" else ""
     }
 
     // ============================================================ 算法选择
@@ -245,14 +297,16 @@ class FxDetailActivity : AppCompatActivity() {
         b.tvParamHint.text = when {
             unset.isEmpty() -> "共 ${algo.params.size} 项"
             else -> "共 ${algo.params.size} 项 · ${unset.size} 项真台未回值（显示“未设置”）"
-        }
+        } + blockedHint(algo.params.map { it.p })
     }
 
     /** 一个算法参数：枚举走 Spinner，数值走 SeekBar */
     private fun paramRow(slot: Int, spec: FxParamSpec, raw: Double?): android.view.View {
-        val key = String.format(Locale.US, "%02d", spec.p)
+        // 当前控台没有这个参数的地址（WING 的段类型/门模型/侧链等）→ 只读置灰。
+        // 留一个能拖的假滑杆比不给更糟：拖了没反应，用户以为台子坏了。
+        val off = !allows(spec.p)
         if (spec.isEnum) {
-            return enumRow(spec.label, spec.opts, raw) { idx ->
+            return enumRow(spec.label, spec.opts, raw, off) { idx ->
                 client.setFxParam(slot, spec.field, idx.toDouble())
             }
         }
@@ -261,7 +315,8 @@ class FxDetailActivity : AppCompatActivity() {
             lo = spec.lo, hi = spec.hi,
             value = raw,                       // null = 真台没回值 → 落 lo 并标"未设置"
             set = { client.setFxParam(slot, spec.field, it) },
-            fmt = { spec.display(it) }
+            fmt = { spec.display(it) },
+            disabled = off
         )
     }
 
@@ -274,11 +329,14 @@ class FxDetailActivity : AppCompatActivity() {
         hi: Double,
         value: Double?,                        // null = 未设置
         set: (Double) -> Unit,
-        fmt: (Double) -> String
+        fmt: (Double) -> String,
+        disabled: Boolean = false              // 当前控台没这个参数 → 只读
     ): android.view.View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(4), 0, dp(8))
+            // 与网页 .fxrow 的 "opacity:.55" 对齐：灰得一致，两端截图能对上
+            alpha = if (disabled) 0.55f else 1f
         }
 
         val head = LinearLayout(this).apply {
@@ -286,8 +344,8 @@ class FxDetailActivity : AppCompatActivity() {
             gravity = Gravity.CENTER_VERTICAL
         }
         val tvName = TextView(this).apply {
-            text = title
-            setTextColor(0xFFC7D0DC.toInt())
+            text = if (disabled) "$title  (本控台未标定)" else title
+            setTextColor(if (disabled) 0xFF8A94A6.toInt() else 0xFFC7D0DC.toInt())
             textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
         }
@@ -301,7 +359,10 @@ class FxDetailActivity : AppCompatActivity() {
         box.addView(head)
 
         val max = 1000
-        val sb = SeekBar(this).apply { this.max = max }
+        val sb = SeekBar(this).apply {
+            this.max = max
+            isEnabled = !disabled          // 置灰时彻底不给动，而不是"动了发不出去"
+        }
         val span = hi - lo
         // 未设置时滑杆落在量程下限：真台还没告诉我们值，不能骗用户一个 0 dB 之类的假数
         val cur = value ?: lo
@@ -356,15 +417,27 @@ class FxDetailActivity : AppCompatActivity() {
         title: String,
         opts: List<String>?,
         value: Double?,
+        disabled: Boolean = false,             // 当前控台没这个参数 → 只读
         set: (Int) -> Unit
     ): android.view.View {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, dp(4), 0, dp(8))
+            alpha = if (disabled) 0.55f else 1f
         }
         box.addView(TextView(this).apply {
-            text = if (value == null) "$title（未设置）" else title
-            setTextColor(if (value == null) 0xFFF0A03C.toInt() else 0xFFC7D0DC.toInt())
+            text = when {
+                value == null -> "$title（未设置）"
+                disabled -> "$title  (本控台未标定)"
+                else -> title
+            }
+            setTextColor(
+                when {
+                    value == null -> 0xFFF0A03C.toInt()
+                    disabled -> 0xFF8A94A6.toInt()
+                    else -> 0xFFC7D0DC.toInt()
+                }
+            )
             textSize = 12f
         })
 
@@ -383,6 +456,7 @@ class FxDetailActivity : AppCompatActivity() {
                 this@FxDetailActivity,
                 android.R.layout.simple_spinner_dropdown_item, items
             )
+            isEnabled = !disabled
         }
         // Spinner 初始化就会回调一次 onItemSelected —— 用"值是否真的变了"挡掉，
         // 比布尔抑制标志可靠（回调时机在不同 API 版本上不一致）。
